@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>To-Do</title>
+  <link rel="icon" type="image/x-icon" href="images/favicon.ico">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    #editToggle {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 3000;
+        padding: 8px 12px;
+        border: none;
+        border-radius: 10px;
+        font-size: 14px;
+        cursor: pointer;
+    }
+    /* when edit mode is ON */
+    #editToggle.edit-on {
+        background: #28a745;  /* green */
+        color: white;
+    }
+    /* when edit mode is OFF */
+    #editToggle.edit-off {
+        background: #dc3545;  /* red */
+        color: white;
+    }
+
+    /* make padding/borders count toward element width */
+    *,
+    *::before,
+    *::after {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        height: 100vh;
+        font-family: "Segoe UI", sans-serif;
+        position: relative;
+        overflow: hidden;
+        transition: background-color 0.3s ease;
+    }
+
+    .popup {
+        position: absolute;
+        width: 250px;               /* ← fixed width so inputs fit */
+        background: rgba(255, 255, 255, 0.95);
+        border: none;
+        padding: 15px;
+        border-radius: 15px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+        z-index: 1000;
+        backdrop-filter: blur(8px);
+    }
+
+    .popup input,
+    .popup button {
+        display: block;
+        margin: 8px 0;
+        width: 100%;               /* ← fills the 250px container */
+        padding: 10px;
+        font-size: 14px;
+        border: 1px solid #ccc;
+        border-radius: 10px;
+    }
+
+    .popup button {
+        background: #007bff;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+    .popup button:hover {
+        background: #0056b3;
+    }
+
+    .task-card {
+        position: absolute;
+        background: #fff;           /* ← white background */
+        border: none;
+        padding: 15px;
+        border-radius: 16px;
+        cursor: move;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        min-width: 200px;
+    }
+
+    .task-content {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .task-content.checked span {
+        text-decoration: line-through;
+        opacity: 0.6;
+    }
+
+    .close-btn {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        background: none;
+        border: none;
+        font-weight: bold;
+        font-size: 16px;
+        cursor: pointer;
+        color: #c00;
+    }
+    .close-btn:hover {
+        color: red;
+    }
+
+    .task-text {
+        background: transparent;
+        border: none;
+        font-size: 16px;
+        font-weight: bold;
+        width: 100%;
+        resize: none;
+        font-family: inherit;
+    }
+
+    #colorPickerContainer {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 2000;
+        background: rgba(255, 255, 255, 0.85);
+        padding: 10px 15px;
+        border-radius: 15px;
+        border: 1px solid #ddd;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        backdrop-filter: blur(6px);
+    }
+    input[type="color"] {
+        border: none;
+        background: none;
+        cursor: pointer;
+    }
+</style>
+</head>
+<body>
+
+<button id="editToggle" class="edit-off">EDIT</button>
+
+<!-- Color Picker UI -->
+<div id="colorPickerContainer">
+  <label for="bgColorPicker">Background</label>
+  <input type="color" id="bgColorPicker">
+</div>
+
+<script>
+  let tasks = [];
+
+  // Color Picker Setup
+  const colorPicker = document.getElementById("bgColorPicker");
+  const savedColor = localStorage.getItem("bg-color");
+  if (savedColor) {
+    document.body.style.backgroundColor = savedColor;
+    colorPicker.value = savedColor;
+  }
+  colorPicker.addEventListener("input", (e) => {
+    const color = e.target.value;
+    document.body.style.backgroundColor = color;
+    localStorage.setItem("bg-color", color);
+  });
+
+  // toggle edit mode & button color, and remove popup if turning OFF
+    const editToggle = document.getElementById("editToggle");
+    let editMode = false;
+
+    editToggle.addEventListener("click", () => {
+        editMode = !editMode;
+        editToggle.classList.toggle("edit-on", editMode);
+        editToggle.classList.toggle("edit-off", !editMode);
+
+        // when we turn edit **off**, remove any existing popup
+        if (!editMode) {
+            const oldPopup = document.getElementById("popup");
+            if (oldPopup) oldPopup.remove();
+        }
+    });
+
+
+
+  document.addEventListener("mousedown", function (e) {
+    if (!editMode) return;                // ← only proceed when editMode is true
+    if (e.target !== document.body) return; // ← keep your existing body-only check
+
+    const oldPopup = document.getElementById("popup");
+    if (oldPopup) oldPopup.remove();
+
+    const popup = document.createElement("div");
+    popup.className = "popup";
+    popup.id = "popup";
+    popup.style.left = e.pageX + "px";
+    popup.style.top = e.pageY + "px";
+
+    popup.innerHTML = `
+      <input type="text" id="task" placeholder="Enter task">
+      <input type="date" id="due">
+      <button id="addTask">Add Task</button>
+    `;
+
+    document.body.appendChild(popup);
+
+    document.getElementById("addTask").onclick = function () {
+      const taskText = document.getElementById("task").value;
+      const dueDate = document.getElementById("due").value;
+
+      if (taskText.trim() === "") return;
+
+      const taskData = {
+        id: Date.now(),
+        text: taskText,
+        due: dueDate,
+        x: e.pageX,
+        y: e.pageY,
+        checked: false,
+      };
+
+      tasks.push(taskData);
+      saveTasks();
+      createTaskCard(taskData);
+      popup.remove();
+    };
+  });
+
+  function createTaskCard(data) {
+    const taskCard = document.createElement("div");
+    taskCard.className = "task-card";
+    taskCard.style.left = data.x + "px";
+    taskCard.style.top = data.y + "px";
+    taskCard.dataset.id = data.id;
+
+    taskCard.innerHTML = `
+      <button class="close-btn">✕</button>
+      <div class="task-content ${data.checked ? "checked" : ""}">
+        <input type="checkbox" class="task-check" ${data.checked ? "checked" : ""}>
+        <span>
+          <textarea class="task-text">${data.text}</textarea>
+          <br><small>Due: ${data.due || "N/A"}</small>
+        </span>
+      </div>
+    `;
+
+    document.body.appendChild(taskCard);
+    makeDraggable(taskCard, data.id);
+
+    const checkbox = taskCard.querySelector(".task-check");
+    const content = taskCard.querySelector(".task-content");
+    checkbox.addEventListener("change", () => {
+      content.classList.toggle("checked", checkbox.checked);
+      const t = tasks.find((t) => t.id == data.id);
+      if (t) {
+        t.checked = checkbox.checked;
+        saveTasks();
+      }
+    });
+
+    const textarea = taskCard.querySelector(".task-text");
+    textarea.addEventListener("input", () => {
+      const t = tasks.find((t) => t.id == data.id);
+      if (t) {
+        t.text = textarea.value;
+        saveTasks();
+      }
+    });
+
+    const closeBtn = taskCard.querySelector(".close-btn");
+    closeBtn.addEventListener("click", () => {
+      taskCard.remove();
+      tasks = tasks.filter((t) => t.id !== data.id);
+      saveTasks();
+    });
+  }
+
+  function makeDraggable(el, id) {
+    let offsetX = 0,
+      offsetY = 0,
+      isDragging = false;
+
+    el.addEventListener("mousedown", function (e) {
+      if (
+        e.target.tagName === "INPUT" ||
+        e.target.tagName === "TEXTAREA" ||
+        e.target.tagName === "BUTTON"
+      )
+        return;
+
+      isDragging = true;
+      offsetX = e.clientX - el.offsetLeft;
+      offsetY = e.clientY - el.offsetTop;
+      el.style.zIndex = 1001;
+    });
+
+    document.addEventListener("mousemove", function (e) {
+      if (isDragging) {
+        const newX = e.clientX - offsetX;
+        const newY = e.clientY - offsetY;
+        el.style.left = newX + "px";
+        el.style.top = newY + "px";
+
+        const t = tasks.find((t) => t.id == id);
+        if (t) {
+          t.x = newX;
+          t.y = newY;
+          saveTasks();
+        }
+      }
+    });
+
+    document.addEventListener("mouseup", function () {
+      isDragging = false;
+    });
+  }
+
+  function saveTasks() {
+    localStorage.setItem("todo-tasks", JSON.stringify(tasks));
+  }
+
+  function loadTasks() {
+    const saved = localStorage.getItem("todo-tasks");
+    if (saved) {
+      tasks = JSON.parse(saved);
+      tasks.forEach(createTaskCard);
+    }
+  }
+
+  loadTasks();
+</script>
+</body>
+</html>
